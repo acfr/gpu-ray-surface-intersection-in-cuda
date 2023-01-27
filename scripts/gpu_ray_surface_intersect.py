@@ -1,4 +1,4 @@
-#Copyright (c) 2022, Raymond Leung
+#Copyright (c) 2023, Raymond Leung
 #All rights reserved.
 #
 #This source code is licensed under the BSD-3-clause license found
@@ -38,6 +38,8 @@ class PyGpuRSI(object):
             print('Unrecognised operating mode "{}",'.format(cfg['mode']))
             print('switched back to default "boolean" output.')
             self.mode = 'boolean'
+        self.shift_required = None
+        self.debug = cfg.get('debug', False)
         #name target
         if 'Windows' in platform.system():
             self.gpu_bin_target += '.exe'
@@ -93,18 +95,86 @@ class PyGpuRSI(object):
             pass
 
     def acquire_data_(self, vertices, triangles, rayfrom=None, rayto=None):
+        #translate spatial coordinates if required
+        self.translate_data(vertices, rayfrom, rayto)
+
         #convert user-supplied numpy arrays into binaries for CUDA program
         with open('input/vertices_f32', 'wb') as f:
-            np.array(vertices.flatten(),'float32').tofile(f)
+            np.array(self.vertices.flatten(),'float32').tofile(f)
         with open('input/triangles_i32', 'wb') as f:
             np.array(triangles.flatten(),'int32').tofile(f)
         if rayfrom is not None:
             with open('input/rayFrom_f32', 'wb') as f:
-                np.array(rayfrom.flatten(),'float32').tofile(f)
+                np.array(self.rayfrom.flatten(),'float32').tofile(f)
         if rayto is not None:
             with open('input/rayTo_f32', 'wb') as f:
-                np.array(rayto.flatten(),'float32').tofile(f)
-        
+                np.array(self.rayto.flatten(),'float32').tofile(f)
+
+    def translate_data(self, vertices, rayfrom, rayto):
+        '''
+        When necessary, reduce the effective range to maximise float precision.
+
+        Background:
+        - IEEE754 represents float32 using 8 exponent and 23 fraction bits:
+           X = (-1)^{b_{31}} * 2^{(b_{30}b_{29}...b_{23})_2 -127} * (1.b_{22}b_{21}...b_0)_2
+             = (-1)^sign * 2^{E-127} * (1 + sum_{i=1:23} b_{23-i} 2^{-i})
+        - This gives 6 to 9 significant decimal digits precision which may not be enough.
+        - For decimals between 2^n and 2^{n+1}, precision is limited to 2^{n-23}.
+          For floats between 2^23=8,388,608 and 2^24=16,777,216, precision is down to 2^0=1.
+        Consideration:
+        - Using Universal Transverse Mercator (UTM) projections, we do not reach these
+          limits in longitude, as the UTM zones each cover at most 668km over an arc
+          of 6 degrees. However, the latitude bands each cover 8 degrees, with northing
+          measured from the equator, the y-coordinate is upper-bounded by 9,300,000 in
+          the northern hemisphere (at 84 deg N) and 10,000,000 in the southern hemisphere.
+        - For UTM coordinates, translating the data and expressing everything relative
+          to the minimum coordinates before the geometry tests are applied can eliminate
+          rounding errors provided the effective/intrinsic range of the data is less
+          than approx. 8km (or 64km) depending on the required level of precision.
+        - For a desired accuracy between (a) 0.001 and (b) 0.01, we can calculate
+          when this is needed by solving n-23 = floor(log2(delta)) for n:
+         (case a): n-23 = floor(-9.9658), n = 13 => 2^n = 8192
+         (case b): n-23 = floor(-6.6439), n = 16 => 2^n = 65536
+        - When np.max(np.abs(vertices)) > 2^n, translation should be applied.
+        - To be clear, for a precision of 0.001 to 0.01, float32 can faithfully
+          represent a local area with a span of 8.192 to 65.536 km if we choose
+          to keep all coordinates positive. If the data is centered instead, the
+          effective distance is doubled using signed representation [-R,R].
+        '''
+        if (rayfrom is None and rayto is not None or
+            rayfrom is not None and rayto is None):
+            raise Exception('Inconsistent ray[from|to] specification, only one is None.')
+
+        rays_unchanged = rayfrom is None
+
+        #perform test once, compute the shift only when this is unknown
+        if self.shift_required is None:
+            self.shift_required = np.max(np.abs(vertices)) > 16384
+            if self.shift_required:
+                self.min_coords = np.min(vertices, axis=0)
+            else:
+                self.min_coords = np.zeros(3)
+
+        if self.shift_required:
+            self.vertices = np.array(vertices) - self.min_coords
+            if rays_unchanged is False:
+                self.rayfrom = np.array(rayfrom) - self.min_coords
+                self.rayto = np.array(rayto) - self.min_coords
+        else:
+            self.vertices = vertices
+            self.rayfrom = rayfrom
+            self.rayto = rayto
+        if self.debug:
+            print('shift_required: {}'.format(self.shift_required))
+            if self.shift_required:
+                print('attempted data translation...')
+            print('vertices min: {}'.format(np.min(self.vertices,axis=0)))
+            print('vertices max: {}'.format(np.max(self.vertices,axis=0)))
+            print('rayfrom min: {}'.format(np.min(self.rayfrom,axis=0)))
+            print('rayfrom max: {}'.format(np.max(self.rayfrom,axis=0)))
+            print('rayto min: {}'.format(np.min(self.rayto,axis=0)))
+            print('rayto max: {}'.format(np.max(self.rayto,axis=0)))
+
     def test(self, vertices, triangles, rayfrom=None, rayto=None):
         #create corresponding binary files
         self.acquire_data_(vertices, triangles, rayfrom, rayto)
