@@ -20,3 +20,18 @@ Issue number, followed by the commit where issue is found
   supplied surface will be subtracted from the vertices and rays. This offset
   remains unchanged in subsequent calls and the same adjustments will be made
   internally each time, until the PyGpuRSI object goes out of scope.
+
+2. SHA 77cf088a4525e117
+- An exception "illegal memory access was encountered in
+  gpu_ray_surface_intersect.cu at line 270" is thrown when the surface
+  contains only 1 triangle. See test case supplied by Ronan Danno in
+  [```issues/0002```](issues/0002/test_case.md).
+- This most likely is due to the construction of the binary radix tree.
+  The bounding volume hierarchy traversal algorithm expects at least one split
+  node where the left and right child nodes are defined. For this corner case,
+  these are undefined at the root node. This problem disappears if the mesh
+  contains multiple (>= 2) triangles. For simplicity, this condition is
+  enforced in ```gpu_ray_surface_intersect.cu main()```. When
+  ```nTriangles = readData(fileTriangles, h_triangles, 3, quietMode);```
+  equals one, three coincident vertices (a degenerate triangle) are added to
+  the host memory vector ```h_triangles```.

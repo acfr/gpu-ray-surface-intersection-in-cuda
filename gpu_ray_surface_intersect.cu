@@ -121,6 +121,17 @@ int main(int argc, char *argv[])
     //read input data into host memory
     nVertices = readData(fileVertices, h_vertices, 3, quietMode);
     nTriangles = readData(fileTriangles, h_triangles, 3, quietMode);
+
+    if (h_triangles.size() == 3) {
+        //Add an extra triangle so that BVH traversal works in an
+        //uncomplicated way without throwing an exception. It
+        //expects at least one split node at the top of the binary
+        //radix tree where the left and right child nodes are defined.
+        for (int i = 0; i < 3; i++)
+            h_triangles.push_back(0);
+        nTriangles += 1;
+    }
+
     nRays = readData(fileFrom, h_rayFrom, 3, quietMode);
     assert(readData(fileTo, h_rayTo, 3, quietMode) == nRays);
     h_crossingDetected.resize(nRays);
