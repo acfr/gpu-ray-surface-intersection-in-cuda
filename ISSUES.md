@@ -35,3 +35,12 @@ Issue number, followed by the commit where issue is found
   ```nTriangles = readData(fileTriangles, h_triangles, 3, quietMode);```
   equals one, three coincident vertices (a degenerate triangle) are added to
   the host memory vector ```h_triangles```.
+
+3. SHA 1edbd3e39f2f61e7
+- The byte size in the cudaMalloc statement for d_interceptDists should
+  depend on sizeof(InterceptDistances), not sizeof(CollisionList). This was
+  a copy and paste error. Fortuitously, both objects have the same memory
+  footprint, as uint32 and float (under CUDA) generally take up 4 bytes.
+  So, this correction is more about semantics or the intent of the statement.
+- Change int sz_interceptDists(gridXLambda * blockX * sizeof(CollisionList))
+  to int sz_interceptDists(gridXLambda * blockX * sizeof(InterceptDistances))

@@ -227,7 +227,7 @@ int main(int argc, char *argv[])
         sz_sortedIDs(nTriangles * sizeof(int)),
         sz_hitIDs(gridXLambda * blockX * sizeof(CollisionList));
     InterceptDistances *d_interceptDists;
-    int sz_interceptDists(gridXLambda * blockX * sizeof(CollisionList));
+    int sz_interceptDists(gridXLambda * blockX * sizeof(InterceptDistances));
     cudaMalloc(&d_leafNodes, nTriangles * sizeof(BVHNode));
     cudaMalloc(&d_internalNodes, nTriangles * sizeof(BVHNode));
     cudaMalloc(&d_morton, sz_morton);
