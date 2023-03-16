@@ -51,7 +51,8 @@ __device__ int intersectMoller(
                 const float *v0, const float *v1, const float *v2,
                 const float *edge1, const float *edge2,
                 const float *q0, const float *q1,
-                float &t, float &u, float &v);
+                float &t, float &u, float &v, float &det, float &epsi, 
+                float *avec, float *tvec, float *bvec);
 
 __device__ void checkRayTriangleIntersection(const float* __restrict__ vertices,
                                              const int* __restrict__ triangles,
@@ -66,7 +67,8 @@ __device__ void checkRayTriangleIntersection(const float* __restrict__ vertices,
                                              const float* __restrict__ rayTo,
                                              int* __restrict__ intersectTriangle,
                                              float* baryT, float* baryU, float* baryV,
-                                             int rayIdx, int triangleID);
+                                             float* debug, int rayIdx, int triangleID,
+                                             int candidate, int queryRayIdx);
 
 __device__ void checkRayTriangleIntersection(const float* __restrict__ vertices,
                                              const int* __restrict__ triangles,
@@ -176,12 +178,14 @@ __device__ int intersectMoller(
                 const float *v0, const float *v1, const float *v2,
                 const float *edge1, const float *edge2,
                 const float *q0, const float *q1,
-                float &t, float &u, float &v)
+                float &t, float &u, float &v, float &det, float &epsi,
+                float *avec, float *tvec, float *bvec)
 {
-    float direction[3], avec[3], bvec[3], tvec[3], det, inv_det;
+    float direction[3], inv_det;
     subtract(q1, q0, direction);
     cross(direction, edge2, avec);
     dot(avec, edge1, det);
+    epsi = EPSILON;
     if (det > EPSILON) {
         subtract(q0, v0, tvec);
         dot(avec, tvec, u);
@@ -252,7 +256,9 @@ __device__ void checkRayTriangleIntersection(const float* __restrict__ vertices,
                                              const float* __restrict__ rayTo,
                                              int* __restrict__ intersectTriangle,
                                              float* baryT, float* baryU, float* baryV,
-                                             int rayIdx, int triangleID)
+                                             float* debug, int rayIdx, int triangleID,
+                                             int candidate,
+                                             int queryRayIdx)
 {
     float triangleVerts[9], edge1[3], edge2[3];
     const float *v0 = &triangleVerts[0],
@@ -268,14 +274,69 @@ __device__ void checkRayTriangleIntersection(const float* __restrict__ vertices,
     subtract(v2, v0, edge2);
 
     const float *start = &rayFrom[3*rayIdx], *finish = &rayTo[3*rayIdx];
-    float t, u, v;
-    if (intersectMoller(v0, v1, v2, edge1, edge2, start, finish, t, u, v)) {
+    float t, u, v, det, epsilon, avec[3], tvec[3], bvec[3];
+    if (intersectMoller(v0, v1, v2, edge1, edge2, start, finish,
+                        t, u, v, det, epsilon, avec, tvec, bvec)) {
         if (t < baryT[rayIdx]) {
             intersectTriangle[rayIdx] = triangleID;
             baryT[rayIdx] = t;
             baryU[rayIdx] = u;
             baryV[rayIdx] = v;
         }
+    }
+    //hardcoded: only 1 thread in one particular grid-block should write out this data
+    if (rayIdx == queryRayIdx) {
+        int os = candidate * 48; //offset
+        debug[os] = candidate;
+        debug[os+1] = rayIdx;
+        debug[os+2] = triangleID;
+        debug[os+3] = det;
+        debug[os+4] = t;
+        debug[os+5] = u;
+        debug[os+6] = v;
+        debug[os+7] = triangles[3*triangleID];
+        debug[os+8] = triangles[3*triangleID+1];
+        debug[os+9] = triangles[3*triangleID+2];
+        debug[os+10] = triangleVerts[0];
+        debug[os+11] = triangleVerts[1];
+        debug[os+12] = triangleVerts[2];
+        debug[os+13] = triangleVerts[3];
+        debug[os+14] = triangleVerts[4];
+        debug[os+15] = triangleVerts[5];
+        debug[os+16] = triangleVerts[6];
+        debug[os+17] = triangleVerts[7];
+        debug[os+18] = triangleVerts[8];
+        debug[os+19] = rayFrom[3*rayIdx];
+        debug[os+20] = rayFrom[3*rayIdx+1];
+        debug[os+21] = rayFrom[3*rayIdx+2];
+        debug[os+22] = rayTo[3*rayIdx];
+        debug[os+23] = rayTo[3*rayIdx+1];
+        debug[os+24] = rayTo[3*rayIdx+2];
+        debug[os+25] = sqrtf((rayFrom[3*rayIdx]-rayTo[3*rayIdx])*(rayFrom[3*rayIdx]-rayTo[3*rayIdx])
+                           + (rayFrom[3*rayIdx+1]-rayTo[3*rayIdx+1])*(rayFrom[3*rayIdx+1]-rayTo[3*rayIdx+1])
+                           + (rayFrom[3*rayIdx+2]-rayTo[3*rayIdx+2])*(rayFrom[3*rayIdx+2]-rayTo[3*rayIdx+2]));
+        debug[os+26] = rayFrom[3*rayIdx] + t * (rayTo[3*rayIdx] - rayFrom[3*rayIdx]);
+        debug[os+27] = rayFrom[3*rayIdx+1] + t * (rayTo[3*rayIdx+1] - rayFrom[3*rayIdx+1]);
+        debug[os+28] = rayFrom[3*rayIdx+2] + t * (rayTo[3*rayIdx+2] - rayFrom[3*rayIdx+2]);
+        debug[os+29] = (1-u-v) * triangleVerts[0] + u * triangleVerts[3] + v * triangleVerts[6]; //(1-u-v)*V0 + u*V1 + v*V2
+        debug[os+30] = (1-u-v) * triangleVerts[1] + u * triangleVerts[4] + v * triangleVerts[7];
+        debug[os+31] = (1-u-v) * triangleVerts[2] + u * triangleVerts[5] + v * triangleVerts[8];
+        debug[os+32] = edge1[0];
+        debug[os+33] = edge1[1];
+        debug[os+34] = edge1[2];
+        debug[os+35] = edge2[0];
+        debug[os+36] = edge2[1];
+        debug[os+37] = edge2[2];
+        debug[os+38] = avec[0];
+        debug[os+39] = avec[1];
+        debug[os+40] = avec[2];
+        debug[os+41] = tvec[0];
+        debug[os+42] = tvec[1];
+        debug[os+43] = tvec[2];
+        debug[os+44] = bvec[0];
+        debug[os+45] = bvec[1];
+        debug[os+46] = bvec[2];
+        debug[os+47] = epsilon;
     }
 }
 
@@ -304,8 +365,9 @@ __device__ void checkRayTriangleIntersection(const float* __restrict__ vertices,
 
     const float *start = &rayFrom[3*rayIdx], *finish = &rayTo[3*rayIdx];
     float *tp = interceptDists.t; //circular buffer
-    float t, u, v;
-    if (intersectMoller(v0, v1, v2, edge1, edge2, start, finish, t, u, v)) {
+    float t, u, v, det, epsilon, avec[3], tvec[3], bvec[3];
+    if (intersectMoller(v0, v1, v2, edge1, edge2, start, finish,
+                        t, u, v, det, epsilon, avec, tvec, bvec)) {
         bool newIntercept(true);
         for (int i = 0; i < MAX_INTERSECTIONS; i++) {
             if ((t > tp[i] - tol) && (t < tp[i] + tol)) {

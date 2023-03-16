@@ -136,7 +136,9 @@ __device__ void bvhFindCollisions(const float* vertices,
                                   float* t,
                                   float* u,
                                   float* v,
-                                  int rayIdx);
+                                  float* debug,
+                                  int rayIdx,
+                                  int queryRayIdx);
 
 __device__ void bvhFindCollisions(const float* vertices,
                                   const int* triangles,
@@ -179,7 +181,8 @@ __global__ void bvhIntersectionKernel(const float* __restrict__ vertices,
                                       float* __restrict__ baryT,
                                       float* __restrict__ baryU,
                                       float* __restrict__ baryV,
-                                      int numTriangles, int numRays);
+                                      float* __restrict__ debug,
+                                      int numTriangles, int numRays, int queryRayIdx);
 
 __global__ void bvhIntersectionKernel(const float* __restrict__ vertices,
                                       const int* __restrict__ triangles,
@@ -584,7 +587,9 @@ __device__ void bvhFindCollisions(const float* vertices,
                                   float* baryT,
                                   float* baryU,
                                   float* baryV,
-                                  int rayIdx)
+                                  float* debug,
+                                  int rayIdx,
+                                  int queryRayIdx)
 {
     NodePtr stack[MAX_STACK_PTRS];
     NodePtr* stackPtr = stack;
@@ -596,10 +601,11 @@ __device__ void bvhFindCollisions(const float* vertices,
 
         int candidate = 0;
         while (candidate < collisions.count) {
-            int triangleID = collisions.hits[candidate++];
+            int triangleID = collisions.hits[candidate];
             checkRayTriangleIntersection(vertices, triangles, rayFrom, rayTo,
-                                         intersectTriangle, baryT, baryU,
-                                         baryV, rayIdx, triangleID);
+                                         intersectTriangle, baryT, baryU, baryV,
+                                         debug, rayIdx, triangleID, candidate, queryRayIdx);
+            candidate++;
         }
     }
     while (nextNode != NULL);
@@ -737,7 +743,8 @@ __global__ void bvhIntersectionKernel(const float* __restrict__ vertices,
                                       float* __restrict__ baryT,
                                       float* __restrict__ baryU,
                                       float* __restrict__ baryV,
-                                      int numTriangles, int numRays)
+                                      float* __restrict__ debug,
+                                      int numTriangles, int numRays, int queryRayIdx)
 {
     __shared__ NodePtr bvhRoot;
     __shared__ int stride;
@@ -755,7 +762,7 @@ __global__ void bvhIntersectionKernel(const float* __restrict__ vertices,
             CollisionList &collisions = raytriBoxHitIDs[bufferIdx];
             bvhFindCollisions(vertices, triangles, rayFrom, rayTo, rayBox,
                               bvhRoot, collisions, intersectTriangle,
-                              baryT, baryU, baryV, idx);
+                              baryT, baryU, baryV, debug, idx, queryRayIdx);
         }
     }
 }

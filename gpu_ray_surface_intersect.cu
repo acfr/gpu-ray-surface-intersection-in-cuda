@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
     vector<float> h_rayTo;
     vector<int>   h_crossingDetected;
     vector<int>   h_intersectTriangle;
-    vector<float> h_baryT, h_baryU, h_baryV;
+    vector<float> h_baryT, h_baryU, h_baryV, h_debug;
     int nVertices, nTriangles, nRays;
 
     if (argc == 2 && strcmp(argv[1], "--help")==0)
@@ -93,7 +93,8 @@ int main(int argc, char *argv[])
              << "[3] segment start points, (nRays,3) as binary float32[]\n"
              << "[4] segment end points, (nRays,3) as binary float32[]\n"
              << "[5] suppress cout with string \"silent\"\n"
-             << "[6] output format \"boolean\" or \"barycentric\" or \"intercept_count\"\n";
+             << "[6] output format \"boolean\" or \"barycentric\" or \"intercept_count\"\n"
+             << "[7] ray index for which Moller-Trumbore diagnostic params are extracted, as int32\n";
         return 0;
     }
     //optional arguments
@@ -117,6 +118,7 @@ int main(int argc, char *argv[])
     */
     bool barycentric(argc > 6? strcmp(argv[6], "barycentric") == 0 : false);
     bool interceptsCount(argc > 6? strcmp(argv[6], "intercept_count") == 0 : false);
+    int  queryRayIdx(argc > 7? atoi(argv[7]) : 0);
 
     //read input data into host memory
     nVertices = readData(fileVertices, h_vertices, 3, quietMode);
@@ -140,13 +142,14 @@ int main(int argc, char *argv[])
     float time = 0;
     float *d_vertices, *d_rayFrom, *d_rayTo;
     int   *d_triangles, *d_crossingDetected, *d_intersectTriangle;
-    float *d_baryT, *d_baryU, *d_baryV;
+    float *d_baryT, *d_baryU, *d_baryV, *d_debug;
     AABB  *d_rayBox;
     int sz_vertices(3 * nVertices * sizeof(float)),
         sz_triangles(3 * nTriangles * sizeof(int)),
         sz_rays(3 * nRays * sizeof(float)),
         sz_rbox(nRays * sizeof(AABB)),
         sz_id(nRays * sizeof(int)),
+        sz_debug(1536 * sizeof(float)),
         sz_bary(nRays * sizeof(float));
     cudaMalloc(&d_vertices, sz_vertices);
     cudaMalloc(&d_triangles, sz_triangles);
@@ -163,10 +166,12 @@ int main(int argc, char *argv[])
         h_baryT.resize(nRays);
         h_baryU.resize(nRays);
         h_baryV.resize(nRays);
+        h_debug.resize(1536);
         cudaMalloc(&d_intersectTriangle, sz_id);
         cudaMalloc(&d_baryT, sz_bary);
         cudaMalloc(&d_baryU, sz_bary);
         cudaMalloc(&d_baryV, sz_bary);
+        cudaMalloc(&d_debug, sz_debug);
     }
     cudaMemcpy(d_vertices, h_vertices.data(), sz_vertices, cudaMemcpyHostToDevice);
     cudaMemcpy(d_triangles, h_triangles.data(), sz_triangles, cudaMemcpyHostToDevice);
@@ -194,6 +199,7 @@ int main(int argc, char *argv[])
     if (barycentric) {
         initArrayKernel<<<gridXr, blockX>>>(d_intersectTriangle, -1, nRays);
         initArrayKernel<<<gridXr, blockX>>>(d_baryT, largePosVal, nRays);
+        initArrayKernel<<<gridXr, blockX>>>(d_debug, 0.0f, 1536);
     }
     cudaDeviceSynchronize();
 
@@ -255,7 +261,7 @@ int main(int argc, char *argv[])
                     d_vertices, d_triangles, d_rayFrom, d_rayTo,
                     d_internalNodes, d_rayBox, d_hitIDs,
                     d_intersectTriangle, d_baryT, d_baryU, d_baryV,
-                    nTriangles, nRays);
+                    d_debug, nTriangles, nRays, queryRayIdx);
     }
     else if (interceptsCount) {
         bvhIntersectionKernel<<<gridXLambda, blockX>>>(
@@ -287,10 +293,12 @@ int main(int argc, char *argv[])
         cudaMemcpy(h_baryT.data(), d_baryT, sz_bary, cudaMemcpyDeviceToHost);
         cudaMemcpy(h_baryU.data(), d_baryU, sz_bary, cudaMemcpyDeviceToHost);
         cudaMemcpy(h_baryV.data(), d_baryV, sz_bary, cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_debug.data(), d_debug, sz_debug, cudaMemcpyDeviceToHost);
         writeData("intersectTriangle_i32", h_intersectTriangle);
         writeData("barycentricT_f32", h_baryT);
         writeData("barycentricU_f32", h_baryU);
         writeData("barycentricV_f32", h_baryV);
+        writeData("debug_f32", h_debug);
     }
 
     //sanity check

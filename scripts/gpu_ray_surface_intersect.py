@@ -52,6 +52,7 @@ class PyGpuRSI(object):
         self.rayfrom_file = f('rayFrom_f32')
         self.rayto_file = f('rayTo_f32')
         self.results_file = f('results_i32')
+        self.query_ray_idx = str(cfg.get('query_ray_idx', 0))
         #set up file structure
         self.setup()
         self.quiet_flag = "silent" if quiet else ""
@@ -186,7 +187,8 @@ class PyGpuRSI(object):
                       self.rayfrom_file,
                       self.rayto_file,
                       self.quiet_flag,
-                      self.mode])
+                      self.mode,
+                      self.query_ray_idx])
         else:
             subprocess.call([os.path.join(self.wrk_dir, self.gpu_bin_target),
                       self.vertices_file,
@@ -194,7 +196,8 @@ class PyGpuRSI(object):
                       self.rayfrom_file,
                       self.rayto_file,
                       self.quiet_flag,
-                      self.mode])
+                      self.mode,
+                      self.query_ray_idx])
         #retrieve results
         if self.mode == 'boolean':
             return np.fromfile('results_i32', dtype=np.int32)
@@ -206,15 +209,43 @@ class PyGpuRSI(object):
             t = np.fromfile('barycentricT_f32', dtype=np.float32)[idx]
             u = np.fromfile('barycentricU_f32', dtype=np.float32)[idx]
             v = np.fromfile('barycentricV_f32', dtype=np.float32)[idx]
+            debug = np.fromfile('debug_f32', dtype=np.float32)
             distances = t * np.sqrt(np.sum((rayto[idx] - rayfrom[idx])**2, axis=1))
             hit_points = np.empty((n,3))
             for ax in [0,1,2]:
                 hit_points[:,ax] = (1-u-v) * vertices[triangles[f,0],ax] + \
                                     u * vertices[triangles[f,1],ax] + \
                                     v * vertices[triangles[f,2],ax]
-            return intersecting_rays, distances, hit_triangles, hit_points
+            return intersecting_rays, distances, hit_triangles, hit_points, debug
         else: #'intercept_count'
             return np.fromfile('results_i32', dtype=np.int32)
+
+    @staticmethod
+    def decode_debug_data(d):
+        #argument: d corresponds to `debug` returned by the [diagnostic] test method
+        sz_dbg_chunk = 48
+        for i in range(32): #up to MAX_INTERSECTIONS candidates
+            os = sz_dbg_chunk * i
+            if np.sum(d[os:os+sz_dbg_chunk]) == 0:
+                continue
+            print('Collision candidate %d, rayidx=%d, triangleID=%d' % (d[os],d[os+1],d[os+2]))
+            print('Moller-Trumbore param:  det={}, t={}'.format(d[os+3],d[os+4]))
+            print('Epsilon used: {}'.format(d[os+47]))
+            print('Barycentric coords:     u={}, v={}'.format(d[os+5],d[os+6]))
+            print('Triangle indices: [%d,%d,%d]' % (d[os+7],d[os+8],d[os+9]))
+            print('Triangle vertices [%d] (%.9f,%.9f,%.9f)' % (d[os+7],d[os+10],d[os+11],d[os+12]))
+            print('                  [%d] (%.9f,%.9f,%.9f)' % (d[os+8],d[os+13],d[os+14],d[os+15]))
+            print('                  [%d] (%.9f,%.9f,%.9f)' % (d[os+9],d[os+16],d[os+17],d[os+18]))
+            print('Edge1 AB: (%.9f,%.9f,%.9f)' % (d[os+32],d[os+33],d[os+34]))
+            print('Edge2 AC: (%.9f,%.9f,%.9f)' % (d[os+35],d[os+36],d[os+37]))
+            print('Vect A: (%.9f,%.9f,%.9f)' % (d[os+38],d[os+39],d[os+40]))
+            print('Vect T: (%.9f,%.9f,%.9f)' % (d[os+41],d[os+42],d[os+43]))
+            print('Vect B: (%.9f,%.9f,%.9f)' % (d[os+44],d[os+45],d[os+46]))
+            print('Ray from: (%.9f,%.9f,%.9f)' % (d[os+19],d[os+20],d[os+21]))
+            print('Ray to:   (%.9f,%.9f,%.9f)' % (d[os+22],d[os+23],d[os+24]))
+            print('Ray length: {}'.format(d[os+25]))
+            print('Intersecting point (t method):    (%.6f,%.6f,%.6f)' % (d[os+26],d[os+27],d[os+28]))
+            print('Intersecting point (barycentric): (%.6f,%.6f,%.6f)\n' % (d[os+29],d[os+30],d[os+31]))
 
     def cleanup(self):
         def match_ext(f, extensions):
