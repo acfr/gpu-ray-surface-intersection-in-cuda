@@ -152,7 +152,8 @@ int main(int argc, char *argv[])
     }
 
     nRays = readData(fileFrom, h_rayFrom, 3, quietMode);
-    assert(readData(fileTo, h_rayTo, 3, quietMode) == nRays);
+    int nRaysTo = readData(fileTo, h_rayTo, 3, quietMode);
+    assert(nRaysTo == nRays);
     h_crossingDetected.resize(nRays);
  
     cudaEvent_t start, end;
