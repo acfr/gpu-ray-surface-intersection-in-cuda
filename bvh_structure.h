@@ -38,7 +38,21 @@ using namespace std;
 using namespace lib_morton;
 using namespace lib_rsi;
 
-struct BVHNode
+#if defined(__CUDACC__) // NVCC
+#define MY_ALIGN(n) __align__(n)
+#elif defined(__GNUC__) // GCC
+#define MY_ALIGN(n) __attribute__((aligned(n)))
+#elif defined(_MSC_VER) // MSVC
+#define MY_ALIGN(n) __declspec(align(n))
+#else
+#error "Please provide a definition for MY_ALIGN macro for your host compiler!"
+#endif
+
+// Force using the same alignment between host and device, so that both sizeof(BVHNode) values match
+// Credits to https://microeducate.tech/cuda-memory-alignment/
+// Note that MY_ALIGN(8) causes crashes (when COMPILE_NON_ESSENTIAL is not defined)
+//   in bvhUpdateParent (if childLeft and childRight are stored first) or in bvhTraverse if bounds are stored first. Not sure why...
+struct MY_ALIGN(16) BVHNode
 {
     AABB bounds;
     BVHNode *childLeft, *childRight;
