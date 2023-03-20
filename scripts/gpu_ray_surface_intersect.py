@@ -209,9 +209,13 @@ class PyGpuRSI(object):
             distances = t * np.sqrt(np.sum((rayto[idx] - rayfrom[idx])**2, axis=1))
             hit_points = np.empty((n,3))
             for ax in [0,1,2]:
+                hit_points[:,ax] = rayfrom[idx,ax] + t * (
+                                   rayto[idx,ax] - rayfrom[idx,ax])
+                '''
                 hit_points[:,ax] = (1-u-v) * vertices[triangles[f,0],ax] + \
                                     u * vertices[triangles[f,1],ax] + \
                                     v * vertices[triangles[f,2],ax]
+                '''
             return intersecting_rays, distances, hit_triangles, hit_points
         else: #'intercept_count'
             return np.fromfile('results_i32', dtype=np.int32)

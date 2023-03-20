@@ -44,3 +44,17 @@ Issue number, followed by the commit where issue is found
   So, this correction is more about semantics or the intent of the statement.
 - Change int sz_interceptDists(gridXLambda * blockX * sizeof(CollisionList))
   to int sz_interceptDists(gridXLambda * blockX * sizeof(InterceptDistances))
+
+4. SHA 6ecfbc8e057cd16f
+- CUDA program reports spurious intersecting points on rare occasions where
+  the ray runs parallel to, or lies in, the plane of a mesh triangle. In this
+  situation, the determinant (det) in the Moller-Trumbore algorithm ought to
+  be zero, however it remains above the zero threshold (EPSILON is currently
+  fixed to 1e-6) due to rounding errors. Instead of aborting the test, it
+  proceeds to calculate the (u,v) barycentric coordinates using precarious,
+  unstable values. This produces a bogus intersection that deviates from the
+  line segment. Refer to full analysis in [```issues/0004```](issues/0004/test_case.md)
+- Instead of using a fixed absolute tolerance, epsilon is scaled by the length
+  of the triangle edges (vAB, vAC) and ray direction vector (vPQ) to counter
+  noise amplification effects. This increases robustness when the mesh
+  triangles are very large or highly variable in size.

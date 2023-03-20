@@ -13,7 +13,7 @@
 
 namespace lib_rsi {
 
-#define EPSILON 0.000001
+#define EPSILON 0.00001
 #define MAX_INTERSECTIONS 32
 
 using namespace std;
@@ -36,6 +36,8 @@ __device__ void subtract(const float *aVec3, const float *bVec3, float *outVec3)
 __device__ void dot(const float *aVec3, const float *bVec3, float &out);
 
 __device__ void cross(const float *aVec3, const float *bVec3, float *outVec3);
+
+__device__ float tolerance(const float *dir, const float *edge1, const float *edge2);
 
 __device__ void lineSegmentBbox(const float *p0, const float *p1, AABB &box);
 
@@ -103,6 +105,14 @@ __device__ void cross(const float *a, const float *b, float *out)
     out[2] = a[0]*b[1] - a[1]*b[0];
 }
 
+__device__ float tolerance(const float *d, const float *eAB, const float *eAC)
+{
+    float scaling = sqrtf((d[0]*d[0] + d[1]*d[1] + d[2]*d[2]) *
+                          (eAB[0]*eAB[0] + eAB[1]*eAB[1] + eAB[2]*eAB[2]) *
+                          (eAC[0]*eAC[0] + eAC[1]*eAC[1] + eAC[2]*eAC[2]));
+    return (scaling > 1)? scaling * EPSILON : EPSILON;
+}
+
 __device__ void lineSegmentBbox(const float *p0, const float *p1, AABB &box)
 {
     if (p0[0] > p1[0]) { box.xMin = p1[0]; box.xMax = p0[0]; }
@@ -139,7 +149,8 @@ __device__ int intersectMoller(
     subtract(q1, q0, direction);
     cross(direction, edge2, avec);
     dot(avec, edge1, det);
-    if (det > EPSILON) {
+    float epsilon = tolerance(direction, edge1, edge2);
+    if (det > epsilon) {
         subtract(q0, v0, tvec);
         dot(avec, tvec, u);
         if (u < 0 || u > det)
@@ -149,7 +160,7 @@ __device__ int intersectMoller(
         if (v < 0 || u + v > det)
             return 0;
     }
-    else if (det < -EPSILON) {
+    else if (det < -epsilon) {
         subtract(q0, v0, tvec);
         dot(avec, tvec, u);
         if (u > 0 || u < det)
@@ -182,7 +193,8 @@ __device__ int intersectMoller(
     subtract(q1, q0, direction);
     cross(direction, edge2, avec);
     dot(avec, edge1, det);
-    if (det > EPSILON) {
+    float epsilon = tolerance(direction, edge1, edge2);
+    if (det > epsilon) {
         subtract(q0, v0, tvec);
         dot(avec, tvec, u);
         if (u < 0 || u > det)
@@ -192,7 +204,7 @@ __device__ int intersectMoller(
         if (v < 0 || u + v > det)
             return 0;
     }
-    else if (det < -EPSILON) {
+    else if (det < -epsilon) {
         subtract(q0, v0, tvec);
         dot(avec, tvec, u);
         if (u > 0 || u < det)
