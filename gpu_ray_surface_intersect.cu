@@ -37,6 +37,25 @@ static void HandleError(cudaError_t err, const char *file, int line)
 }
 #define HANDLE_ERROR( err ) (HandleError( err, __FILE__, __LINE__ ))
 
+static void CheckSyncAsyncErrors(const char* file, int line)
+{
+    // Inspired from https://developer.nvidia.com/blog/how-query-device-properties-and-handle-errors-cuda-cc/
+    cudaError_t errSync = cudaGetLastError(); // returns the value of the latest asynchronous error and also resets it to cudaSuccess.
+    cudaError_t errAsync = cudaDeviceSynchronize();
+    if (errSync != cudaSuccess)
+    {
+        printf("Sync kernel error\n");
+        HandleError(errSync, file, line);
+    }
+    if (errAsync != cudaSuccess)
+    {
+        printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+        HandleError(errAsync, file, line);
+    }
+}
+
+#define CUDA_SYNCHRO_CHECK() (CheckSyncAsyncErrors(__FILE__, __LINE__))
+
 template <class T>
 int readData(string fname, vector<T> &v, int dim=1, bool silent=false)
 {
@@ -133,7 +152,8 @@ int main(int argc, char *argv[])
     }
 
     nRays = readData(fileFrom, h_rayFrom, 3, quietMode);
-    assert(readData(fileTo, h_rayTo, 3, quietMode) == nRays);
+    int nRaysTo = readData(fileTo, h_rayTo, 3, quietMode);
+    assert(nRaysTo == nRays);
     h_crossingDetected.resize(nRays);
  
     cudaEvent_t start, end;
@@ -148,28 +168,28 @@ int main(int argc, char *argv[])
         sz_rbox(nRays * sizeof(AABB)),
         sz_id(nRays * sizeof(int)),
         sz_bary(nRays * sizeof(float));
-    cudaMalloc(&d_vertices, sz_vertices);
-    cudaMalloc(&d_triangles, sz_triangles);
-    cudaMalloc(&d_rayFrom, sz_rays);
-    cudaMalloc(&d_rayTo, sz_rays);
-    cudaMalloc(&d_rayBox, sz_rbox);
+    HANDLE_ERROR(cudaMalloc(&d_vertices, sz_vertices));
+    HANDLE_ERROR(cudaMalloc(&d_triangles, sz_triangles));
+    HANDLE_ERROR(cudaMalloc(&d_rayFrom, sz_rays));
+    HANDLE_ERROR(cudaMalloc(&d_rayTo, sz_rays));
+    HANDLE_ERROR(cudaMalloc(&d_rayBox, sz_rbox));
 
     if (! barycentric) {
-        cudaMalloc(&d_crossingDetected, sz_id);
-        cudaMemset(d_crossingDetected, 0, sz_id);
+        HANDLE_ERROR(cudaMalloc(&d_crossingDetected, sz_id));
+        HANDLE_ERROR(cudaMemset(d_crossingDetected, 0, sz_id));
     }
     else {
         h_intersectTriangle.resize(nRays);
         h_baryT.resize(nRays);
         h_baryU.resize(nRays);
         h_baryV.resize(nRays);
-        cudaMalloc(&d_intersectTriangle, sz_id);
-        cudaMalloc(&d_baryT, sz_bary);
-        cudaMalloc(&d_baryU, sz_bary);
-        cudaMalloc(&d_baryV, sz_bary);
+        HANDLE_ERROR(cudaMalloc(&d_intersectTriangle, sz_id));
+        HANDLE_ERROR(cudaMalloc(&d_baryT, sz_bary));
+        HANDLE_ERROR(cudaMalloc(&d_baryU, sz_bary));
+        HANDLE_ERROR(cudaMalloc(&d_baryV, sz_bary));
     }
-    cudaMemcpy(d_vertices, h_vertices.data(), sz_vertices, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_triangles, h_triangles.data(), sz_triangles, cudaMemcpyHostToDevice);
+    HANDLE_ERROR(cudaMemcpy(d_vertices, h_vertices.data(), sz_vertices, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_triangles, h_triangles.data(), sz_triangles, cudaMemcpyHostToDevice));
 
     //grid partitions
     int blockX = 1024,
@@ -184,22 +204,22 @@ int main(int argc, char *argv[])
     vector<uint64_t> h_morton;
     vector<int> h_sortedTriangleIDs;
 
-    cudaEventCreate(&start);
-    cudaEventCreate(&end);
-    cudaEventRecord(start);
-    cudaMemcpy(d_rayFrom, h_rayFrom.data(), sz_rays, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_rayTo, h_rayTo.data(), sz_rays, cudaMemcpyHostToDevice);
+    HANDLE_ERROR(cudaEventCreate(&start));
+    HANDLE_ERROR(cudaEventCreate(&end));
+    HANDLE_ERROR(cudaEventRecord(start));
+    HANDLE_ERROR(cudaMemcpy(d_rayFrom, h_rayFrom.data(), sz_rays, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_rayTo, h_rayTo.data(), sz_rays, cudaMemcpyHostToDevice));
 
     //initialise arrays
     if (barycentric) {
         initArrayKernel<<<gridXr, blockX>>>(d_intersectTriangle, -1, nRays);
         initArrayKernel<<<gridXr, blockX>>>(d_baryT, largePosVal, nRays);
     }
-    cudaDeviceSynchronize();
+    HANDLE_ERROR(cudaDeviceSynchronize());
 
     //compute ray-segment bounding boxes
     rbxKernel<<<gridXr, blockX>>>(d_rayFrom, d_rayTo, d_rayBox, nRays);
-    cudaDeviceSynchronize();
+    HANDLE_ERROR(cudaDeviceSynchronize());
 
     //order triangles using Morton code
     //- normalise surface vertices to canvas coords
@@ -228,27 +248,28 @@ int main(int argc, char *argv[])
         sz_hitIDs(gridXLambda * blockX * sizeof(CollisionList));
     InterceptDistances *d_interceptDists;
     int sz_interceptDists(gridXLambda * blockX * sizeof(InterceptDistances));
-    cudaMalloc(&d_leafNodes, nTriangles * sizeof(BVHNode));
-    cudaMalloc(&d_internalNodes, nTriangles * sizeof(BVHNode));
-    cudaMalloc(&d_morton, sz_morton);
-    cudaMalloc(&d_sortedTriangleIDs, sz_sortedIDs);
-    cudaMalloc(&d_hitIDs, sz_hitIDs);
+    HANDLE_ERROR(cudaMalloc(&d_leafNodes, nTriangles * sizeof(BVHNode)));
+    HANDLE_ERROR(cudaMalloc(&d_internalNodes, nTriangles * sizeof(BVHNode)));
+    HANDLE_ERROR(cudaMalloc(&d_morton, sz_morton));
+    HANDLE_ERROR(cudaMalloc(&d_sortedTriangleIDs, sz_sortedIDs));
+    HANDLE_ERROR(cudaMalloc(&d_hitIDs, sz_hitIDs));
     if (interceptsCount) {
-        cudaMalloc(&d_interceptDists, sz_interceptDists);
+        HANDLE_ERROR(cudaMalloc(&d_interceptDists, sz_interceptDists));
     }
-    cudaMemcpy(d_morton, h_morton.data(), sz_morton, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_sortedTriangleIDs, h_sortedTriangleIDs.data(), sz_sortedIDs, cudaMemcpyHostToDevice);
+    HANDLE_ERROR(cudaMemcpy(d_morton, h_morton.data(), sz_morton, cudaMemcpyHostToDevice));
+    HANDLE_ERROR(cudaMemcpy(d_sortedTriangleIDs, h_sortedTriangleIDs.data(), sz_sortedIDs, cudaMemcpyHostToDevice));
     std::vector<uint64_t>().swap(h_morton);
     std::vector<int>().swap(h_sortedTriangleIDs);
 
     bvhResetKernel<<<gridXt, blockX>>>(d_vertices, d_triangles,
                                        d_internalNodes, d_leafNodes,
                                        d_sortedTriangleIDs, nTriangles);
-    cudaDeviceSynchronize();
+    HANDLE_ERROR(cudaDeviceSynchronize());
 
     bvhConstruct<uint64_t><<<gridXt, blockX>>>(d_internalNodes, d_leafNodes,
                                                d_morton, nTriangles);
-    cudaDeviceSynchronize();
+    //HANDLE_ERROR(cudaDeviceSynchronize());
+    CUDA_SYNCHRO_CHECK();
 
     if (barycentric) {
         bvhIntersectionKernel<<<gridXLambda, blockX>>>(
@@ -270,11 +291,11 @@ int main(int argc, char *argv[])
                             d_internalNodes, d_rayBox, d_hitIDs,
                             d_crossingDetected, nTriangles, nRays);
     }
-    cudaDeviceSynchronize();
+    HANDLE_ERROR(cudaDeviceSynchronize());
 
-    cudaEventRecord(end);
-    cudaEventSynchronize(end);
-    cudaEventElapsedTime(&time, start, end);
+    HANDLE_ERROR(cudaEventRecord(end));
+    HANDLE_ERROR(cudaEventSynchronize(end));
+    HANDLE_ERROR(cudaEventElapsedTime(&time, start, end));
 
     if (! barycentric) {
         HANDLE_ERROR(cudaMemcpy(h_crossingDetected.data(), d_crossingDetected,
@@ -284,9 +305,9 @@ int main(int argc, char *argv[])
     else {
         HANDLE_ERROR(cudaMemcpy(h_intersectTriangle.data(), d_intersectTriangle,
                                 sz_id, cudaMemcpyDeviceToHost));
-        cudaMemcpy(h_baryT.data(), d_baryT, sz_bary, cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_baryU.data(), d_baryU, sz_bary, cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_baryV.data(), d_baryV, sz_bary, cudaMemcpyDeviceToHost);
+        HANDLE_ERROR(cudaMemcpy(h_baryT.data(), d_baryT, sz_bary, cudaMemcpyDeviceToHost));
+        HANDLE_ERROR(cudaMemcpy(h_baryU.data(), d_baryU, sz_bary, cudaMemcpyDeviceToHost));
+        HANDLE_ERROR(cudaMemcpy(h_baryV.data(), d_baryV, sz_bary, cudaMemcpyDeviceToHost));
         writeData("intersectTriangle_i32", h_intersectTriangle);
         writeData("barycentricT_f32", h_baryT);
         writeData("barycentricU_f32", h_baryU);

@@ -38,7 +38,21 @@ using namespace std;
 using namespace lib_morton;
 using namespace lib_rsi;
 
-struct BVHNode
+#if defined(__CUDACC__) // NVCC
+#define MY_ALIGN(n) __align__(n)
+#elif defined(__GNUC__) // GCC
+#define MY_ALIGN(n) __attribute__((aligned(n)))
+#elif defined(_MSC_VER) // MSVC
+#define MY_ALIGN(n) __declspec(align(n))
+#else
+#error "Please provide a definition for MY_ALIGN macro for your host compiler!"
+#endif
+
+// Force using the same alignment between host and device, so that both sizeof(BVHNode) values match
+// Credits to https://microeducate.tech/cuda-memory-alignment/
+// Note that MY_ALIGN(8) causes crashes (when COMPILE_NON_ESSENTIAL is not defined)
+//   in bvhUpdateParent (if childLeft and childRight are stored first) or in bvhTraverse if bounds are stored first. Not sure why...
+struct MY_ALIGN(16) BVHNode
 {
     AABB bounds;
     BVHNode *childLeft, *childRight;
@@ -412,69 +426,75 @@ __device__ void computeTriangleBounds(const float *triangleVerts, AABB &box)
 
 template <typename M>
 __device__ void bvhUpdateParent(BVHNode* node, BVHNode* internalNodes,
-                                BVHNode *leafNodes, M *morton, int nNodes)
+    BVHNode* leafNodes, M* morton, int nNodes)
 {
-    /* This is a recursive function. It sets parent node bounding box and
+    /* This is a recursive function (implemented here as a loop). It sets parent node bounding box and
        traverse to the root node, see approach in
        Robbin Marcus, "Real-time Raytracing part 2.1", Accessed: June 2022, URL:
        https://robbinmarcus.blogspot.com/2015/12/real-time-raytracing-part-21.html
     */
-    //allow only one thread to process a node
-    //  => for leaf nodes: always go through
-    //  => for internal nodes: only when both children have been discovered
-    if (atomicAdd(&node->atomic, 1) != 1)
-        return;
-#ifdef COMPILE_NON_ESSENTIAL
-    node->self = node;
-#endif
-    if (! isLeaf(node))
-    {   //expand bounds using children's axis-aligned bounding boxes
-        const BVHNode *dL = node->childLeft, //descendants
-                      *dR = node->childRight;
-        node->bounds.xMin = min(dL->bounds.xMin, dR->bounds.xMin);
-        node->bounds.xMax = max(dL->bounds.xMax, dR->bounds.xMax);
-        node->bounds.yMin = min(dL->bounds.yMin, dR->bounds.yMin);
-        node->bounds.yMax = max(dL->bounds.yMax, dR->bounds.yMax);
-        node->bounds.zMin = min(dL->bounds.zMin, dR->bounds.zMin);
-        node->bounds.zMax = max(dL->bounds.zMax, dR->bounds.zMax);
-    }
-    /* Deduce parent node index based on split properties described in
-       Ciprian Apetrei, "Fast and Simple Agglomerative LBVH Construction",
-       EG UK Computer Graphics & Visual Computing, 2014
-    */
-    int left = node->rangeLeft, right = node->rangeRight;
-    BVHNode *parent;
-    if (left == 0 || (right != nNodes - 1 &&
-        highestBit(right, morton) < highestBit(left - 1, morton)))
+    while (true)
     {
-        parent = &internalNodes[right];
-        parent->childLeft = node;
-        parent->rangeLeft = left;
+        //allow only one thread to process a node
+        //  => for leaf nodes: always go through
+        //  => for internal nodes: only when both children have been discovered
+        if (atomicAdd(&node->atomic, 1) != 1)
+            return;
+
 #ifdef COMPILE_NON_ESSENTIAL
-        parent->idxChildL = node->idxSelf;
-        parent->isLeafChildL = isLeaf(node);
-        node->parent = parent;
+        node->self = node;
 #endif
-    }
-    else
-    {
-        parent = &internalNodes[left - 1];
-        parent->childRight = node;
-        parent->rangeRight = right;
+        if (!isLeaf(node))
+        {   //expand bounds using children's axis-aligned bounding boxes
+            const BVHNode* dL = node->childLeft, //descendants
+                * dR = node->childRight;
+            node->bounds.xMin = min(dL->bounds.xMin, dR->bounds.xMin);
+            node->bounds.xMax = max(dL->bounds.xMax, dR->bounds.xMax);
+            node->bounds.yMin = min(dL->bounds.yMin, dR->bounds.yMin);
+            node->bounds.yMax = max(dL->bounds.yMax, dR->bounds.yMax);
+            node->bounds.zMin = min(dL->bounds.zMin, dR->bounds.zMin);
+            node->bounds.zMax = max(dL->bounds.zMax, dR->bounds.zMax);
+        }
+        /* Deduce parent node index based on split properties described in
+           Ciprian Apetrei, "Fast and Simple Agglomerative LBVH Construction",
+           EG UK Computer Graphics & Visual Computing, 2014
+        */
+        int left = node->rangeLeft, right = node->rangeRight;
+        BVHNode* parent;
+        if (left == 0 || (right != nNodes - 1 &&
+            highestBit(right, morton) < highestBit(left - 1, morton)))
+        {
+            parent = &internalNodes[right];
+            parent->childLeft = node;
+            parent->rangeLeft = left;
 #ifdef COMPILE_NON_ESSENTIAL
-        parent->idxChildR = node->idxSelf;
-        parent->isLeafChildR = isLeaf(node);
-        node->parent = parent;
+            parent->idxChildL = node->idxSelf;
+            parent->isLeafChildL = isLeaf(node);
+            node->parent = parent;
 #endif
+        }
+        else
+        {
+            parent = &internalNodes[left - 1];
+            parent->childRight = node;
+            parent->rangeRight = right;
+#ifdef COMPILE_NON_ESSENTIAL
+            parent->idxChildR = node->idxSelf;
+            parent->isLeafChildR = isLeaf(node);
+            node->parent = parent;
+#endif
+        }
+        if (left == 0 && right == nNodes - 1)
+        {   //current node represents the root,
+            //set left child in last internal node to root
+            internalNodes[nNodes - 1].childLeft = node;
+            node->triangleID = ROOT;
+            return;
+        }
+
+        // "Recursively" call the same function, moving up to the parent
+        node = parent;
     }
-    if (left == 0 && right == nNodes - 1)
-    {   //current node represents the root,
-        //set left child in last internal node to root
-        internalNodes[nNodes - 1].childLeft = node;
-        node->triangleID = ROOT;
-        return;
-    }
-    bvhUpdateParent<M>(parent, internalNodes, leafNodes, morton, nNodes);
 }
 
 __device__ bool inline bvhInsert(CollisionList &collisions, int value)
