@@ -28,7 +28,7 @@ Several features may be noted based on the PyCUDA [documentation](https://docume
 - <i>Speed</i> - PyCUDA's base layer is written in C++, so it has negligible impact on throughput performance.
 
 ### Working with two versions of the source at the same time
-To compare the results produced by two different versions of the source, we can work with both at the same time without needing to switch between git branches, compiling and testing the code one after the other. Instead, the following workflow may be used within a Python environment. [Note: For simplicity, the compiler cache is not shown in this figure] This could be useful when we need assurance that incremental changes do not alter the test outcomes during development. The results may be compared using numpy functions and any differences can be easily identified. This scenario is shown in [pycuda/demo.py](https://github.com/raymondleung8/gpu-ray-surface-intersection-in-cuda/pycuda/demo.py) `run_example3`.
+To compare the results produced by two different versions of the source, we can work with both at the same time without needing to switch between git branches, compiling and testing the code one after the other. Instead, the following workflow may be used within a Python environment. [Note: For simplicity, the compiler cache is not shown in this figure] This could be useful when we need assurance that incremental changes do not alter the test outcomes during development. The results may be compared using numpy functions and any differences can be easily identified. This scenario is shown in [pycuda/demo.py](https://github.com/raymondleung8/gpu-ray-surface-intersection-in-cuda/tree/main/pycuda/demo.py) `run_example3`.
 
 <img src="images/version-comparison.png" alt="Working with two versions of the source at the same time in the PyCUDA environment" width="600"/></a>
 
@@ -400,5 +400,5 @@ intersection library is free of these issues.
 >📋  This project is licensed under the terms of the [BSD 3-Clause](../LICENSE.md) license.
 
 If you find this code useful, you are welcome to cite this in your work:
-- [<b>This post</b>] Raymond Leung, An experience with PyCUDA: Refactoring an existing implementation of a ray-surface intersection algorithm, [arXiv e-print 2305.01867](https://www.arxiv.org/pdf/2305.01867), 2023.  Source code available at https://github.com/raymondleung8/gpu-ray-surface-intersection-in-cuda/pycuda under a BSD 3 license.
+- [<b>This post</b>] Raymond Leung, An experience with PyCUDA: Refactoring an existing implementation of a ray-surface intersection algorithm, [arXiv e-print 2305.01867](https://www.arxiv.org/pdf/2305.01867), 2023.  Source code available at https://github.com/raymondleung8/gpu-ray-surface-intersection-in-cuda/tree/main/pycuda under a BSD 3 license.
 - [<b>Related article</b>] Raymond Leung, GPU implementation of a ray-surface intersection algorithm in CUDA, [arXiv e-print 2209.02878](https://www.arxiv.org/pdf/2209.02878), 2022.  Source code available at https://github.com/raymondleung8/gpu-ray-surface-intersection-in-cuda under a BSD 3 license. 

@@ -82,7 +82,7 @@ provide some clarity on certain practical considerations that are sometimes
 omitted in discussion. Compilation instruction, usage command, CPU/GPU
 specifications and run time measurements are also included for reference.
 
-> A self-contained PyCUDA implementation is also available. PyCUDA provides a Python scripting approach to GPU Run-Time Code Generation. Refer to [pycuda/README.md](https://github.com/raymondleung8/gpu-ray-surface-intersection-in-cuda/pycuda) for more information.
+> A self-contained PyCUDA implementation is also available. PyCUDA provides a Python scripting approach to GPU Run-Time Code Generation. Refer to [pycuda/README.md](https://github.com/raymondleung8/gpu-ray-surface-intersection-in-cuda/tree/main/pycuda) for more information.
 
 
 ## References
