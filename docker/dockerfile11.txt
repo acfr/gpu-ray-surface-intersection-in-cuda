@@ -1,0 +1,29 @@
+# This version installs the required python packages excluding pycuda
+# - Using CUDA version 11.2.2, Python 3.8 and Ubuntu 18.04
+# - Tested with Docker client 19.03.12
+
+FROM nvidia/cuda:11.2.2-devel-ubuntu18.04 
+
+RUN apt-get update
+RUN apt-get install -y libx11-dev libgl1 libxrender-dev && \
+    apt-get install -y unzip wget python3-pip python3.8 python3.8-venv && \
+    rm -rf /var/lib/apt/lists/*
+RUN python3.8 -m venv /venv && \
+    . /venv/bin/activate && \
+    pip3 install --upgrade pip && \
+    pip3 install matplotlib numpy pandas scipy scikit-image pyvista pyembree pybind11
+
+RUN if [ ":$PATH:" != *":/usr/local/cuda/bin"* ] ; then \
+        echo "- adding /usr/local/cuda/bin to PATH" ; \
+        export PATH="/usr/local/cuda/bin:${PATH}" ; \
+    fi
+RUN export LD_LIBRARY_PATH=/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
+RUN export CUDA_INC_DIR=/usr/local/cuda/include
+
+ENV PATH=/venv/bin:$PATH
+
+RUN mkdir /home/wrk
+RUN wget https://github.com/acfr/gpu-ray-surface-intersection-in-cuda/archive/refs/heads/main.zip && \
+    unzip main.zip
+
+WORKDIR /home/wrk

@@ -1,0 +1,28 @@
+# This version installs all python packages including pycuda
+# - Using CUDA version 12.0.1, Python 3.9 and Ubuntu 20.04
+# - Tested with Docker client 24.0.6
+
+FROM nvidia/cuda:12.0.1-devel-ubuntu20.04
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update
+RUN apt-get install -y libx11-dev libgl1 libxrender-dev && \
+    apt-get install -y unzip wget python3-pip python3.9 python3.9-venv && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/usr/local/cuda/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+ENV CUDA_INC_DIR="/usr/local/cuda/include"
+RUN pip3 install --upgrade pip
+RUN pip3 install matplotlib numpy graphviz pandas requests scipy scikit-image pyvista pycuda pybind11
+
+RUN wget https://github.com/acfr/gpu-ray-surface-intersection-in-cuda/archive/refs/heads/main.zip && \
+    unzip main.zip
+
+RUN mkdir /home/wrk && \
+    mkdir /home/scripts
+RUN cd /home/scripts && \
+    cp /gpu-ray-surface-intersection-in-cuda-main/scripts/gpu_ray_surface_intersect.py ./ && \
+    cp /gpu-ray-surface-intersection-in-cuda-main/scripts/input_synthesis.py ./ && \
+    cp /gpu-ray-surface-intersection-in-cuda-main/pycuda/diagnostic*.py ./ && \
+    cp /gpu-ray-surface-intersection-in-cuda-main/pycuda/pycuda*.py ./
