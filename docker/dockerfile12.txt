@@ -14,7 +14,7 @@ ENV PATH="/usr/local/cuda/bin:${PATH}"
 ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 ENV CUDA_INC_DIR="/usr/local/cuda/include"
 RUN pip3 install --upgrade pip
-RUN pip3 install matplotlib numpy graphviz pandas requests scipy scikit-image pyvista pycuda pybind11
+RUN pip3 install matplotlib numpy graphviz pandas requests scipy scikit-image pyvista pycuda pybind11 invoke cffi
 
 RUN wget https://github.com/acfr/gpu-ray-surface-intersection-in-cuda/archive/refs/heads/main.zip && \
     unzip main.zip
